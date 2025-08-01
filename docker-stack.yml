@@ -1,0 +1,183 @@
+# version: "3.8"
+
+# services:
+#   client:
+#     image: test-practice-client:latest
+#     ports:
+#       - "3000:80"
+#     depends_on:
+#       - server
+#     deploy:
+#       replicas: 2
+#       resources:
+#         limits:
+#           cpus: "0.25"
+#           memory: 256M
+#       restart_policy:
+#         condition: on-failure
+
+#   server:
+#     image: test-practice-server:latest
+#     ports:
+#       - "5000:5000"
+#     environment:
+#       - MONGO_URL=mongodb://qmsUAT:India%40321@mongo:27017/crud?authSource=admin
+#     depends_on:
+#       - mongo
+#     deploy:
+#       replicas: 3
+#       resources:
+#         limits:
+#           cpus: "0.5"
+#           memory: 512M
+#       restart_policy:
+#         condition: on-failure
+
+#   mongo:
+#     image: mongo:8.0.5
+#     ports:
+#       - "27018:27017"
+#     volumes:
+#       - mongo_data:/data/db
+#     environment:
+#       - MONGO_INITDB_ROOT_USERNAME=qmsUAT
+#       - MONGO_INITDB_ROOT_PASSWORD=India@321
+#     deploy:
+#       placement:
+#         constraints: [node.role == manager]
+
+# volumes:
+#   mongo_data:
+version: "3.8"
+
+services:
+  client:
+    image: test-practice-client:latest
+    ports:
+      - "3000:80"
+    depends_on:
+      - server
+    networks:
+      - app-network
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 256M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+
+  server:
+    image: test-practice-server:latest
+    ports:
+      - "5000:5000"
+    environment:
+      - MONGO_URL=mongodb://qmsUAT:India%40321@mongo:27017/crud?authSource=admin
+      - NODE_ENV=production
+    depends_on:
+      - mongo
+    networks:
+      - app-network
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+        order: start-first
+      rollback_config:
+        parallelism: 1
+        delay: 5s
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 60s
+
+  mongo:
+    image: mongo:8.0.5
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=qmsUAT
+      - MONGO_INITDB_ROOT_PASSWORD=India@321
+      - MONGO_INITDB_DATABASE=crud
+    networks:
+      - app-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 120s
+
+  # Load balancer for better traffic distribution
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - client
+      - server
+    networks:
+      - app-network
+    deploy:
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          cpus: "0.1"
+          memory: 64M
+      restart_policy:
+        condition: on-failure
+
+volumes:
+  mongo_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: overlay
+    attachable: true

@@ -38,9 +38,7 @@ function App() {
           path="/add-user"
           element={
             <MainLayout>
-              <ProtectedRoute>
-                <UserForm />
-              </ProtectedRoute>
+              <UserForm />
             </MainLayout>
           }
         />

@@ -11,7 +11,7 @@ const app = express();
 
 app.use(express.json());
 app.use(cors({
-    origin: 'http://localhost:5173', // Frontend URL (Vite default)
+    origin: ['http://localhost:3000', 'http://localhost:5173', 'http://194.195.115.208:3000'], // Frontend URL (Vite default)
     credentials: true // if you're sending cookies or auth headers
 }));
 mongoose.connect(process.env.MONGO_URI)

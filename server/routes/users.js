@@ -12,7 +12,7 @@ router.get('/', auth, async (req, res) => {
     }
 });
 
-router.post('/', auth, async (req, res) => {
+router.post('/', async (req, res) => {
     try {
         const newUser = new User(req.body);
         const user = await newUser.save();
