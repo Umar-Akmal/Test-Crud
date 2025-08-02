@@ -19,14 +19,6 @@ jobs:
           echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> server/.env
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> server/.env
 
-      - name: Show debug SSH values (safe parts only)
-        run: |
-          echo "HOST: ${{ secrets.HOST }}"
-          echo "USER: ${{ secrets.USERNAME }}"
-          echo "Key Set: ${{ secrets.SSH_KEY != '' }}"
-          echo "MONGO_URI:${{ secrets.MONGO_URI }}"
-        shell: bash
-
       # --- CLIENT BUILD ---
       - name: Install and build client
         working-directory: ./client
