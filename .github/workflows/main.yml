@@ -38,9 +38,11 @@ jobs:
           docker save -o server.tar test-practice-server:latest
 
       # --- FIX: Move files to root ---
-      - name: Move deployment files to root
+      - name: Copy deployment files to root if not already there
         run: |
-          mv client.tar server.tar docker-compose.yml .
+          cp -u client.tar . || true
+          cp -u server.tar . || true
+          cp -u docker-compose.yml . || true
 
       # --- OPTIONAL DEBUG ---
       - name: Debug - Confirm files exist
