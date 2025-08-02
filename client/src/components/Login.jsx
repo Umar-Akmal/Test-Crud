@@ -21,7 +21,7 @@ const Login = () => {
     <div className="flex items-center justify-center min-h-screen bg-gradient-to-r from-blue-100 to-purple-100">
       <div className="bg-white p-8 rounded-xl shadow-2xl w-full max-w-md transform transition-all hover:scale-105">
         <h2 className="text-3xl font-bold text-center text-gray-800 mb-6">
-          Welcome Back New
+          Welcome Back New 1
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
