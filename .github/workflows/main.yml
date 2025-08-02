@@ -46,28 +46,63 @@ jobs:
           [ -f client.tar ] && mv client.tar client1.tar
           [ -f server.tar ] && mv server.tar server1.tar
 
-      # --- DEPLOY FILES TO SERVER ---
+      # # --- DEPLOY FILES TO SERVER ---
+      # - name: Copy deployment files to server
+      #   uses: appleboy/scp-action@master
+      #   with:
+      #     host: ${{ secrets.HOST }}
+      #     username: ${{ secrets.USERNAME }}
+      #     key: ${{ secrets.SSH_KEY }}
+      #     source: "client.tar server.tar"
+      #     target: /var/www/html/Test-practice
+
+      # # STEP 5: Rollback if SCP fails
+      # - name: Rollback deployment (restore previous .tar files)
+      #   if: failure()
+      #   uses: appleboy/scp-action@master
+      #   with:
+      #     host: ${{ secrets.HOST }}
+      #     username: ${{ secrets.USERNAME }}
+      #     key: ${{ secrets.SSH_KEY }}
+      #     port: 2025
+      #     source: "client1.tar,server1.tar"
+      #     target: /var/www/html/Test-practice
+      # Create a deploy directory to store all deployment artifacts
+      - name: Prepare deployment folder
+        run: |
+          mkdir -p deploy
+          mv client.tar server.tar docker-compose.yml deploy/
+
+      # SCP the entire deploy folder to the server
       - name: Copy deployment files to server
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          source: "client.tar server.tar"
+          source: "deploy/*"
           target: /var/www/html/Test-practice
 
-      # STEP 5: Rollback if SCP fails
-      - name: Rollback deployment (restore previous .tar files)
+      # Backup previous tar files after SCP succeeds
+      - name: Backup previous tar files
+        run: |
+          [ -f deploy/client.tar ] && mv deploy/client.tar client1.tar
+          [ -f deploy/server.tar ] && mv deploy/server.tar server1.tar
+          [ -f deploy/docker-compose.yml ] && mv deploy/docker-compose.yml docker-compose1.yml
+
+      # Rollback if deployment fails
+      - name: Rollback deployment
         if: failure()
         uses: appleboy/scp-action@master
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          port: 2025
-          source: "client1.tar,server1.tar"
-          target: /var/www/html/Test-practice
-
+        key: ${{ secrets.SSH_KEY }}
+        source: |
+          client1.tar
+          server1.tar
+          docker-compose1.yml
+        target: /var/www/html/Test-practice
       # --- REMOTE DEPLOYMENT ---
       - name: SSH and deploy Docker containers
         uses: appleboy/ssh-action@master
