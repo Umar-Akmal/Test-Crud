@@ -37,6 +37,15 @@ jobs:
           docker build -t test-practice-server:latest ./server
           docker save -o server.tar test-practice-server:latest
 
+      # --- FIX: Move files to root ---
+      - name: Move deployment files to root
+        run: |
+          mv client.tar server.tar docker-compose.yml .
+
+      # --- OPTIONAL DEBUG ---
+      - name: Debug - Confirm files exist
+        run: ls -lh client.tar server.tar docker-compose.yml
+
       # --- DEPLOY FILES TO SERVER ---
       - name: Copy deployment files to server
         uses: appleboy/scp-action@master
