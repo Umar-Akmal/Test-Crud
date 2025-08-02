@@ -97,12 +97,12 @@ jobs:
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
-        key: ${{ secrets.SSH_KEY }}
-        source: |
-          client1.tar
-          server1.tar
-          docker-compose1.yml
-        target: /var/www/html/Test-practice
+          key: ${{ secrets.SSH_KEY }}
+          source: |
+            client1.tar
+            server1.tar
+            docker-compose1.yml
+          target: /var/www/html/Test-practice
       # --- REMOTE DEPLOYMENT ---
       - name: SSH and deploy Docker containers
         uses: appleboy/ssh-action@master
