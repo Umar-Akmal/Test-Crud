@@ -1,94 +1,3 @@
-# name: Deploy MERN CRUD App
-
-# on:
-#   push:
-#     branches: [main]
-
-# jobs:
-#   deploy:
-#     runs-on: ubuntu-latest
-
-#     steps:
-#       - name: Checkout code
-#         uses: actions/checkout@v4
-
-#       # --- CREATE .env FOR SERVER ---
-#       - name: Create .env file for server
-#         run: |
-#           echo "PORT=${{ secrets.SERVER_PORT }}" >> server/.env
-#           echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> server/.env
-#           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> server/.env
-
-#       # --- CLIENT BUILD ---
-#       - name: Install and build client
-#         working-directory: ./client
-#         run: |
-#           npm install
-#           npm run build
-
-#       - name: Create client image and tar it
-#         run: |
-#           docker build -t test-practice-client:latest ./client
-#           docker save -o client.tar test-practice-client:latest
-
-#       # --- SERVER TAR ---
-#       - name: Create server image and tar it
-#         run: |
-#           docker build -t test-practice-server:latest ./server
-#           docker save -o server.tar test-practice-server:latest
-
-#       # STEP 3: Backup existing tar files
-#       - name: Backup previous .tar files
-#         run: |
-#           [ -f client1.tar ] && rm client1.tar
-#           [ -f server1.tar ] && rm server1.tar
-#           [ -f docker-compose1.yml ] && rm docker-compose1.yml
-
-#           [ -f client.tar ] && mv client.tar client1.tar
-#           [ -f server.tar ] && mv server.tar server1.tar
-#           [ -f docker-compose.yml ] && mv docker-compose.yml docker-compose1.yml
-
-#       # --- DEPLOY FILES TO SERVER ---
-#       - name: Copy deployment files to server
-#         uses: appleboy/scp-action@master
-#         with:
-#           host: ${{ secrets.HOST }}
-#           username: ${{ secrets.USERNAME }}
-#           key: ${{ secrets.SSH_KEY }}
-#           source: |
-#             docker-compose.yml
-#             client.tar
-#             server.tar
-#           target: /var/www/html/Test-practice
-
-#       # STEP 5: Rollback if SCP fails
-#       - name: Rollback deployment (restore previous .tar files)
-#         if: failure()
-#         uses: appleboy/scp-action@master
-#         with:
-#           host: ${{ secrets.HOST }}
-#           username: ${{ secrets.USERNAME }}
-#           key: ${{ secrets.SSH_KEY }}
-#           port: 2025
-#           source: "client1.tar,server1.tar,docker-compose1.yml"
-#           target: /var/www/html/Test-practice
-
-#       # --- REMOTE DEPLOYMENT ---
-#       - name: SSH and deploy Docker containers
-#         uses: appleboy/ssh-action@master
-#         with:
-#           host: ${{ secrets.HOST }}
-#           username: ${{ secrets.USERNAME }}
-#           key: ${{ secrets.SSH_KEY }}
-#           script: |
-#             cd /var/www/html/Test-practice
-#             echo "Loading Docker images from tarballs..."
-#             docker load -i client.tar || true
-#             docker load -i server.tar || true
-#             echo "Restarting containers..."
-#             docker-compose down
-#             docker-compose up -d
-
 name: Deploy MERN CRUD App
 
 on:
@@ -128,13 +37,14 @@ jobs:
           docker build -t test-practice-server:latest ./server
           docker save -o server.tar test-practice-server:latest
 
-      # --- OPTIONAL: Debug before deployment ---
-      - name: Debug file existence before SCP
+      # STEP 3: Backup existing tar files
+      - name: Backup previous .tar files
         run: |
-          echo "Files in root:"
-          ls -al
-          echo "Check for tar and compose files:"
-          ls -al client.tar server.tar docker-compose.yml || true
+          [ -f client1.tar ] && rm client1.tar
+          [ -f server1.tar ] && rm server1.tar
+
+          [ -f client.tar ] && mv client.tar client1.tar
+          [ -f server.tar ] && mv server.tar server1.tar
 
       # --- DEPLOY FILES TO SERVER ---
       - name: Copy deployment files to server
@@ -143,24 +53,10 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          source: |
-            docker-compose.yml
-            client.tar
-            server.tar
+          source: "client.tar server.tar"
           target: /var/www/html/Test-practice
 
-      # --- BACKUP .tar FILES AFTER SCP SUCCEEDS ---
-      - name: Backup previous .tar files
-        run: |
-          [ -f client1.tar ] && rm client1.tar
-          [ -f server1.tar ] && rm server1.tar
-          [ -f docker-compose1.yml ] && rm docker-compose1.yml
-
-          [ -f client.tar ] && mv client.tar client1.tar
-          [ -f server.tar ] && mv server.tar server1.tar
-          [ -f docker-compose.yml ] && mv docker-compose.yml docker-compose1.yml
-
-      # --- ROLLBACK IF SCP FAILS ---
+      # STEP 5: Rollback if SCP fails
       - name: Rollback deployment (restore previous .tar files)
         if: failure()
         uses: appleboy/scp-action@master
@@ -169,7 +65,7 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           port: 2025
-          source: "client1.tar,server1.tar,docker-compose1.yml"
+          source: "client1.tar,server1.tar"
           target: /var/www/html/Test-practice
 
       # --- REMOTE DEPLOYMENT ---
