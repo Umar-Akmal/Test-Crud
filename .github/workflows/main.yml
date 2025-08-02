@@ -1,0 +1,67 @@
+name: Deploy MERN CRUD App
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # --- CREATE .env FOR SERVER ---
+      - name: Create .env file for server
+        run: |
+          echo "PORT=${{ secrets.SERVER_PORT }}" >> server/.env
+          echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> server/.env
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> server/.env
+
+      # --- CLIENT BUILD ---
+      - name: Install and build client
+        working-directory: ./client
+        run: |
+          npm install
+          npm run build
+
+      - name: Create client image and tar it
+        run: |
+          docker build -t test-practice-client:latest ./client
+          docker save -o client.tar test-practice-client:latest
+
+      # --- SERVER TAR ---
+      - name: Create server image and tar it
+        run: |
+          docker build -t test-practice-server:latest ./server
+          docker save -o server.tar test-practice-server:latest
+
+      # --- DEPLOY FILES TO SERVER ---
+      - name: Copy deployment files to server
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          source: |
+            docker-compose.yml
+            client.tar
+            server.tar
+          target: /var/www/html/Test-practice
+
+      # --- REMOTE DEPLOYMENT ---
+      - name: SSH and deploy Docker containers
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /var/www/html/Test-practice
+            echo "Loading Docker images from tarballs..."
+            docker load -i client.tar || true
+            docker load -i server.tar || true
+            echo "Restarting containers..."
+            docker-compose down
+            docker-compose up -d
