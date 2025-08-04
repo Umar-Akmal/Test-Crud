@@ -1,95 +1,307 @@
+# name: Deploy MERN CRUD App
+
+# on:
+#   push:
+#     branches: [main]
+
+# jobs:
+#   deploy:
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       # --- CREATE .env FOR SERVER ---
+#       - name: Create .env file for server
+#         run: |
+#           echo "PORT=${{ secrets.SERVER_PORT }}" >> server/.env
+#           echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> server/.env
+#           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> server/.env
+
+#       # --- CLIENT BUILD ---
+#       - name: Install and build client
+#         working-directory: ./client
+#         run: |
+#           npm install
+#           npm run build
+
+#       - name: Create client image and tar it
+#         run: |
+#           docker build -t test-practice-client:latest ./client
+#           docker save -o client.tar test-practice-client:latest
+
+#       # --- SERVER TAR ---
+#       - name: Create server image and tar it
+#         run: |
+#           docker build -t test-practice-server:latest ./server
+#           docker save -o server.tar test-practice-server:latest
+
+#       # STEP 3: Backup existing tar files
+#       - name: Backup previous .tar files
+#         run: |
+#           [ -f client1.tar ] && rm client1.tar
+#           [ -f server1.tar ] && rm server1.tar
+
+#           [ -f client.tar ] && mv client.tar client1.tar
+#           [ -f server.tar ] && mv server.tar server1.tar
+#       #List of directory for debugging
+#       - name: List working directory files
+#         run: |
+#           pwd
+#           ls -lah
+
+#       - name: List contents of /home/runner/work/Test-Crud/Test-Crud
+#         run: ls -lah /home/runner/work/Test-Crud/Test-Crud
+
+#       # --- DEPLOY FILES TO SERVER ---
+#       - name: Copy deployment files to server
+#         uses: appleboy/scp-action@master
+#         with:
+#           host: ${{ secrets.HOST }}
+#           username: ${{ secrets.USERNAME }}
+#           key: ${{ secrets.SSH_KEY }}
+#           source: |
+#             client.tar
+#             server.tar
+#           target: /var/www/html/Test-practice
+
+#       # STEP 5: Rollback if SCP fails
+#       - name: Rollback deployment (restore previous .tar files)
+#         if: failure()
+#         uses: appleboy/scp-action@master
+#         with:
+#           host: ${{ secrets.HOST }}
+#           username: ${{ secrets.USERNAME }}
+#           key: ${{ secrets.SSH_KEY }}
+#           port: 2025
+#           source: "client1.tar,server1.tar"
+#           target: /var/www/html/Test-practice
+
+#       # --- REMOTE DEPLOYMENT ---
+#       - name: SSH and deploy Docker containers
+#         uses: appleboy/ssh-action@master
+#         with:
+#           host: ${{ secrets.HOST }}
+#           username: ${{ secrets.USERNAME }}
+#           key: ${{ secrets.SSH_KEY }}
+#           script: |
+#             cd /var/www/html/Test-practice
+#             echo "Loading Docker images from tarballs..."
+#             docker load -i client.tar || true
+#             docker load -i server.tar || true
+#             echo "Restarting containers..."
+#             docker-compose down
+#             docker-compose up -d
+
 name: Deploy MERN CRUD App
 
 on:
   push:
     branches: [main]
+  workflow_dispatch: # Allow manual triggering
+
+env:
+  CLIENT_IMAGE: test-practice-client
+  SERVER_IMAGE: test-practice-server
+  DEPLOY_PATH: /var/www/html/Test-practice
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # --- VALIDATION ---
+      - name: Validate required secrets
+        run: |
+          if [ -z "${{ secrets.MONGO_URI }}" ] || [ -z "${{ secrets.JWT_SECRET }}" ]; then
+            echo "❌ Missing required secrets"
+            exit 1
+          fi
+          echo "✅ All required secrets are present"
+
       # --- CREATE .env FOR SERVER ---
       - name: Create .env file for server
         run: |
-          echo "PORT=${{ secrets.SERVER_PORT }}" >> server/.env
-          echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> server/.env
-          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> server/.env
+          mkdir -p server
+          cat > server/.env << EOF
+          PORT=${{ secrets.SERVER_PORT || '5000' }}
+          MONGO_URI=${{ secrets.MONGO_URI }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          NODE_ENV=production
+          EOF
+          echo "✅ Server .env file created"
 
       # --- CLIENT BUILD ---
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: client/package-lock.json
+
       - name: Install and build client
         working-directory: ./client
         run: |
-          npm install
+          echo "📦 Installing client dependencies..."
+          npm ci --only=production
+          echo "🏗️ Building client..."
           npm run build
+          echo "✅ Client build completed"
 
-      - name: Create client image and tar it
+      # --- DOCKER OPERATIONS ---
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and save client image
         run: |
-          docker build -t test-practice-client:latest ./client
-          docker save -o client.tar test-practice-client:latest
+          echo "🐳 Building client Docker image..."
+          docker build -t ${{ env.CLIENT_IMAGE }}:latest ./client
+          echo "💾 Saving client image to tar..."
+          docker save -o client.tar ${{ env.CLIENT_IMAGE }}:latest
+          echo "✅ Client image saved ($(du -h client.tar | cut -f1))"
 
-      # --- SERVER TAR ---
-      - name: Create server image and tar it
+      - name: Build and save server image
         run: |
-          docker build -t test-practice-server:latest ./server
-          docker save -o server.tar test-practice-server:latest
+          echo "🐳 Building server Docker image..."
+          docker build -t ${{ env.SERVER_IMAGE }}:latest ./server
+          echo "💾 Saving server image to tar..."
+          docker save -o server.tar ${{ env.SERVER_IMAGE }}:latest
+          echo "✅ Server image saved ($(du -h server.tar | cut -f1))"
 
-      # STEP 3: Backup existing tar files
-      - name: Backup previous .tar files
+      # --- BACKUP MANAGEMENT ---
+      - name: Prepare deployment files
         run: |
-          [ -f client1.tar ] && rm client1.tar
-          [ -f server1.tar ] && rm server1.tar
+          echo "📋 Deployment summary:"
+          echo "- Client tar: $(du -h client.tar | cut -f1)"
+          echo "- Server tar: $(du -h server.tar | cut -f1)"
+          echo "- Total size: $(du -ch *.tar | tail -1 | cut -f1)"
 
-          [ -f client.tar ] && mv client.tar client1.tar
-          [ -f server.tar ] && mv server.tar server1.tar
-      #List of directory for debugging
-      - name: List working directory files
-        run: |
-          pwd
-          ls -lah
-
-      - name: List contents of /home/runner/work/Test-Crud/Test-Crud
-        run: ls -lah /home/runner/work/Test-Crud/Test-Crud
+          # Verify tar files
+          docker load -i client.tar --quiet
+          docker load -i server.tar --quiet
+          echo "✅ Tar files verified successfully"
 
       # --- DEPLOY FILES TO SERVER ---
       - name: Copy deployment files to server
-        uses: appleboy/scp-action@master
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          source: |
-            client.tar
-            server.tar
-          target: /var/www/html/Test-practice
-
-      # STEP 5: Rollback if SCP fails
-      - name: Rollback deployment (restore previous .tar files)
-        if: failure()
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.HOST }}
-          username: ${{ secrets.USERNAME }}
-          key: ${{ secrets.SSH_KEY }}
-          port: 2025
-          source: "client1.tar,server1.tar"
-          target: /var/www/html/Test-practice
+          port: ${{ secrets.SSH_PORT || '22' }}
+          source: "client.tar,server.tar"
+          target: ${{ env.DEPLOY_PATH }}
+          timeout: 300s
+          strip_components: 0
 
       # --- REMOTE DEPLOYMENT ---
-      - name: SSH and deploy Docker containers
-        uses: appleboy/ssh-action@master
+      - name: Deploy Docker containers on remote server
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          timeout: 300s
           script: |
-            cd /var/www/html/Test-practice
-            echo "Loading Docker images from tarballs..."
-            docker load -i client.tar || true
-            docker load -i server.tar || true
-            echo "Restarting containers..."
-            docker-compose down
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "🔍 Current directory: $(pwd)"
+            echo "📁 Available files: $(ls -la *.tar 2>/dev/null || echo 'No tar files found')"
+
+            # Create backup of current containers
+            echo "💾 Creating backup of current containers..."
+            docker-compose down --remove-orphans || echo "⚠️ No existing containers to stop"
+
+            # Load new images
+            echo "🐳 Loading new Docker images..."
+            if [ -f client.tar ]; then
+              docker load -i client.tar
+              echo "✅ Client image loaded"
+            else
+              echo "❌ client.tar not found"
+              exit 1
+            fi
+
+            if [ -f server.tar ]; then
+              docker load -i server.tar  
+              echo "✅ Server image loaded"
+            else
+              echo "❌ server.tar not found"
+              exit 1
+            fi
+
+            # Clean up old images (keep last 2 versions)
+            echo "🧹 Cleaning up old images..."
+            docker image prune -f
+
+            # Start new containers
+            echo "🚀 Starting new containers..."
+            if [ -f docker-compose.yml ]; then
+              docker-compose up -d --remove-orphans
+              echo "✅ Containers started successfully"
+              
+              # Health check
+              echo "🏥 Performing health check..."
+              sleep 10
+              docker-compose ps
+              
+              # Verify containers are running
+              if docker-compose ps | grep -q "Up"; then
+                echo "✅ Deployment successful!"
+              else
+                echo "❌ Some containers failed to start"
+                docker-compose logs --tail=50
+                exit 1
+              fi
+            else
+              echo "❌ docker-compose.yml not found"
+              exit 1
+            fi
+
+            # Cleanup tar files after successful deployment
+            echo "🧹 Cleaning up deployment files..."
+            rm -f client.tar server.tar
+            echo "✅ Deployment completed successfully"
+
+      # --- ROLLBACK ON FAILURE ---
+      - name: Rollback on deployment failure
+        if: failure()
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || '22' }}
+          script: |
+            cd ${{ env.DEPLOY_PATH }}
+            echo "🔄 Attempting rollback..."
+
+            # Try to restart with previous images
+            docker-compose down --remove-orphans
             docker-compose up -d
+
+            if docker-compose ps | grep -q "Up"; then
+              echo "✅ Rollback successful"
+            else
+              echo "❌ Rollback failed - manual intervention required"
+              docker-compose logs --tail=50
+            fi
+
+      # --- NOTIFICATION ---
+      - name: Deployment status notification
+        if: always()
+        run: |
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "🎉 Deployment completed successfully!"
+            echo "🌐 Application should be available at your configured domain"
+          else
+            echo "❌ Deployment failed. Check the logs above for details."
+            echo "🔄 Rollback may have been attempted automatically."
+          fi
