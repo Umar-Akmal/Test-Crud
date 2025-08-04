@@ -93,7 +93,6 @@
 #             echo "Restarting containers..."
 #             docker-compose down
 #             docker-compose up -d
-
 name: Deploy MERN CRUD App
 
 on:
@@ -140,7 +139,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "22.14.0"
           cache: "npm"
           cache-dependency-path: client/package-lock.json
 
@@ -148,7 +147,7 @@ jobs:
         working-directory: ./client
         run: |
           echo "📦 Installing client dependencies..."
-          npm ci --only=production
+          npm ci
           echo "🏗️ Building client..."
           npm run build
           echo "✅ Client build completed"
