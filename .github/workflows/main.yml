@@ -162,6 +162,8 @@ jobs:
           docker build -t ${{ env.CLIENT_IMAGE }}:latest ./client
           echo "💾 Saving client image to tar..."
           docker save -o client.tar ${{ env.CLIENT_IMAGE }}:latest
+          # Fix permissions for the tar file
+          chmod 644 client.tar
           echo "✅ Client image saved ($(du -h client.tar | cut -f1))"
 
       - name: Build and save server image
@@ -170,33 +172,42 @@ jobs:
           docker build -t ${{ env.SERVER_IMAGE }}:latest ./server
           echo "💾 Saving server image to tar..."
           docker save -o server.tar ${{ env.SERVER_IMAGE }}:latest
+          # Fix permissions for the tar file
+          chmod 644 server.tar
           echo "✅ Server image saved ($(du -h server.tar | cut -f1))"
 
       # --- BACKUP MANAGEMENT ---
       - name: Prepare deployment files
         run: |
+          # Ensure files exist and have correct permissions
+          ls -la *.tar
+
           echo "📋 Deployment summary:"
           echo "- Client tar: $(du -h client.tar | cut -f1)"
           echo "- Server tar: $(du -h server.tar | cut -f1)"
           echo "- Total size: $(du -ch *.tar | tail -1 | cut -f1)"
 
-          # Verify tar files
-          docker load -i client.tar --quiet
-          docker load -i server.tar --quiet
-          echo "✅ Tar files verified successfully"
+          # Verify tar files are readable
+          if docker load -i client.tar --quiet && docker load -i server.tar --quiet; then
+            echo "✅ Tar files verified successfully"
+          else
+            echo "❌ Tar file verification failed"
+            exit 1
+          fi
 
       # --- DEPLOY FILES TO SERVER ---
       - name: Copy deployment files to server
+        id: copy-files
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || '22' }}
-          source: "client.tar,server.tar"
+          port: ${{ secrets.SSH_PORT || '2025' }}
+          source: "./client.tar,./server.tar"
           target: ${{ env.DEPLOY_PATH }}
           timeout: 300s
-          strip_components: 0
+          overwrite: true
 
       # --- REMOTE DEPLOYMENT ---
       - name: Deploy Docker containers on remote server
@@ -205,7 +216,7 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || '22' }}
+          port: ${{ secrets.SSH_PORT || '2025' }}
           timeout: 300s
           script: |
             set -e
@@ -271,26 +282,45 @@ jobs:
 
       # --- ROLLBACK ON FAILURE ---
       - name: Rollback on deployment failure
-        if: failure()
+        if: failure() && steps.copy-files.conclusion != 'failure'
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
-          port: ${{ secrets.SSH_PORT || '22' }}
+          port: ${{ secrets.SSH_PORT || '2025' }}
+          timeout: 60s
           script: |
-            cd ${{ env.DEPLOY_PATH }}
+            cd ${{ env.DEPLOY_PATH }} || exit 1
             echo "🔄 Attempting rollback..."
 
+            # Check if docker-compose.yml exists
+            if [ ! -f docker-compose.yml ]; then
+              echo "❌ docker-compose.yml not found - cannot rollback"
+              exit 1
+            fi
+
             # Try to restart with previous images
-            docker-compose down --remove-orphans
-            docker-compose up -d
+            echo "⏹️ Stopping current containers..."
+            docker-compose down --remove-orphans || true
+
+            echo "🚀 Starting previous containers..."
+            docker-compose up -d || {
+              echo "❌ Failed to start containers during rollback"
+              exit 1
+            }
+
+            # Wait a moment for containers to start
+            sleep 5
 
             if docker-compose ps | grep -q "Up"; then
               echo "✅ Rollback successful"
             else
               echo "❌ Rollback failed - manual intervention required"
-              docker-compose logs --tail=50
+              echo "📋 Container status:"
+              docker-compose ps
+              echo "📋 Recent logs:"
+              docker-compose logs --tail=20
             fi
 
       # --- NOTIFICATION ---
