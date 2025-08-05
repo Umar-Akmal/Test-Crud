@@ -13,7 +13,7 @@
 #     ports:
 #       - "5000:5000"
 #     environment:
-#       - MONGO_URL=mongodb://mongo:27017/crud
+#       - MONGO_URL=mongodb://host.docker.internal:27017/crud
 #     depends_on:
 #       - mongo
 
@@ -28,6 +28,7 @@
 
 # volumes:
 #   mongo_data:
+
 # version: "3.8"
 
 services:
@@ -43,21 +44,21 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - MONGO_URL=mongodb://qmsUAT:India%40321@mongo:27017/crud?authSource=admin
-    depends_on:
-      - mongo
+      - MONGO_URL=mongodb://qmsUAT:India%40321@host.docker.internal:27017/crud?authSource=admin
+#     depends_on:
+#       - mongo
 
-  mongo:
-    image: mongo:8.0.5
-    container_name: mongo-db
-    ports:
-      - "27018:27017" # hostPort:containerPort
-    volumes:
-      - mongo_data:/data/db
-    restart: always
-    environment:
-      - MONGO_INITDB_ROOT_USERNAME=qmsUAT
-      - MONGO_INITDB_ROOT_PASSWORD=India@321
+#   mongo:
+#     image: mongo:8.0.5
+#     container_name: mongo-db
+#     ports:
+#       - "27018:27017" # hostPort:containerPort
+#     volumes:
+#       - mongo_data:/data/db
+#     restart: always
+#     environment:
+#       - MONGO_INITDB_ROOT_USERNAME=qmsUAT
+#       - MONGO_INITDB_ROOT_PASSWORD=India@321
 
-volumes:
-  mongo_data:
+# volumes:
+#   mongo_data:

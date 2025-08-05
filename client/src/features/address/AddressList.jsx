@@ -40,7 +40,6 @@ const AddressList = () => {
           Add Address
         </button>
       </div>
-      063988
       {loading && <p className="text-gray-500">Loading...</p>}
       {error && <p className="text-red-500 font-medium">{error}</p>}
       <div className="overflow-x-auto rounded shadow">
