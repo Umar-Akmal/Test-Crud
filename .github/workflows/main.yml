@@ -3,96 +3,243 @@
 # on:
 #   push:
 #     branches: [main]
+#   workflow_dispatch: # Allow manual triggering
+
+# env:
+#   CLIENT_IMAGE: test-practice-client
+#   SERVER_IMAGE: test-practice-server
+#   DEPLOY_PATH: /var/www/html/Test-practice
 
 # jobs:
 #   deploy:
 #     runs-on: ubuntu-latest
+#     timeout-minutes: 30
 
 #     steps:
 #       - name: Checkout code
 #         uses: actions/checkout@v4
 
+#       # --- VALIDATION ---
+#       - name: Validate required secrets
+#         run: |
+#           if [ -z "${{ secrets.MONGO_URI }}" ] || [ -z "${{ secrets.JWT_SECRET }}" ]; then
+#             echo "❌ Missing required secrets"
+#             exit 1
+#           fi
+#           echo "✅ All required secrets are present"
+
 #       # --- CREATE .env FOR SERVER ---
 #       - name: Create .env file for server
 #         run: |
-#           echo "PORT=${{ secrets.SERVER_PORT }}" >> server/.env
-#           echo "MONGO_URI=${{ secrets.MONGO_URI }}" >> server/.env
-#           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> server/.env
+#           mkdir -p server
+#           cat > server/.env << EOF
+#           PORT=${{ secrets.SERVER_PORT || '5000' }}
+#           MONGO_URI=${{ secrets.MONGO_URI }}
+#           JWT_SECRET=${{ secrets.JWT_SECRET }}
+#           NODE_ENV=production
+#           EOF
+#           echo "✅ Server .env file created"
 
 #       # --- CLIENT BUILD ---
+#       - name: Setup Node.js
+#         uses: actions/setup-node@v4
+#         with:
+#           node-version: "22.14.0"
+#           cache: "npm"
+#           cache-dependency-path: client/package-lock.json
+
 #       - name: Install and build client
 #         working-directory: ./client
 #         run: |
-#           npm install
+#           echo "📦 Installing client dependencies..."
+#           npm ci
+#           echo "🏗️ Building client..."
 #           npm run build
+#           echo "✅ Client build completed"
 
-#       - name: Create client image and tar it
+#       # --- DOCKER OPERATIONS ---
+#       - name: Set up Docker Buildx
+#         uses: docker/setup-buildx-action@v3
+
+#       - name: Build and save client image
 #         run: |
-#           docker build -t test-practice-client:latest ./client
-#           docker save -o client.tar test-practice-client:latest
+#           echo "🐳 Building client Docker image..."
+#           docker build -t ${{ env.CLIENT_IMAGE }}:latest ./client
+#           echo "💾 Saving client image to tar..."
+#           docker save -o client.tar ${{ env.CLIENT_IMAGE }}:latest
+#           # Fix permissions for the tar file
+#           chmod 644 client.tar
+#           echo "✅ Client image saved ($(du -h client.tar | cut -f1))"
 
-#       # --- SERVER TAR ---
-#       - name: Create server image and tar it
+#       - name: Build and save server image
 #         run: |
-#           docker build -t test-practice-server:latest ./server
-#           docker save -o server.tar test-practice-server:latest
+#           echo "🐳 Building server Docker image..."
+#           docker build -t ${{ env.SERVER_IMAGE }}:latest ./server
+#           echo "💾 Saving server image to tar..."
+#           docker save -o server.tar ${{ env.SERVER_IMAGE }}:latest
+#           # Fix permissions for the tar file
+#           chmod 644 server.tar
+#           echo "✅ Server image saved ($(du -h server.tar | cut -f1))"
 
-#       # STEP 3: Backup existing tar files
-#       - name: Backup previous .tar files
+#       # --- BACKUP MANAGEMENT ---
+#       - name: Prepare deployment files
 #         run: |
-#           [ -f client1.tar ] && rm client1.tar
-#           [ -f server1.tar ] && rm server1.tar
+#           # Ensure files exist and have correct permissions
+#           ls -la *.tar
 
-#           [ -f client.tar ] && mv client.tar client1.tar
-#           [ -f server.tar ] && mv server.tar server1.tar
-#       #List of directory for debugging
-#       - name: List working directory files
-#         run: |
-#           pwd
-#           ls -lah
+#           echo "📋 Deployment summary:"
+#           echo "- Client tar: $(du -h client.tar | cut -f1)"
+#           echo "- Server tar: $(du -h server.tar | cut -f1)"
+#           echo "- Total size: $(du -ch *.tar | tail -1 | cut -f1)"
 
-#       - name: List contents of /home/runner/work/Test-Crud/Test-Crud
-#         run: ls -lah /home/runner/work/Test-Crud/Test-Crud
+#           # Verify tar files are readable
+#           if docker load -i client.tar --quiet && docker load -i server.tar --quiet; then
+#             echo "✅ Tar files verified successfully"
+#           else
+#             echo "❌ Tar file verification failed"
+#             exit 1
+#           fi
 
 #       # --- DEPLOY FILES TO SERVER ---
 #       - name: Copy deployment files to server
-#         uses: appleboy/scp-action@master
+#         id: copy-files
+#         uses: appleboy/scp-action@v0.1.7
 #         with:
 #           host: ${{ secrets.HOST }}
 #           username: ${{ secrets.USERNAME }}
 #           key: ${{ secrets.SSH_KEY }}
-#           source: |
-#             client.tar
-#             server.tar
-#           target: /var/www/html/Test-practice
-
-#       # STEP 5: Rollback if SCP fails
-#       - name: Rollback deployment (restore previous .tar files)
-#         if: failure()
-#         uses: appleboy/scp-action@master
-#         with:
-#           host: ${{ secrets.HOST }}
-#           username: ${{ secrets.USERNAME }}
-#           key: ${{ secrets.SSH_KEY }}
-#           port: 2025
-#           source: "client1.tar,server1.tar"
-#           target: /var/www/html/Test-practice
+#           port: ${{ secrets.SSH_PORT || '2025' }}
+#           source: "./client.tar,./server.tar"
+#           target: ${{ env.DEPLOY_PATH }}
+#           timeout: 300s
+#           overwrite: true
 
 #       # --- REMOTE DEPLOYMENT ---
-#       - name: SSH and deploy Docker containers
-#         uses: appleboy/ssh-action@master
+#       - name: Deploy Docker containers on remote server
+#         uses: appleboy/ssh-action@v1.0.3
 #         with:
 #           host: ${{ secrets.HOST }}
 #           username: ${{ secrets.USERNAME }}
 #           key: ${{ secrets.SSH_KEY }}
+#           port: ${{ secrets.SSH_PORT || '2025' }}
+#           timeout: 300s
 #           script: |
-#             cd /var/www/html/Test-practice
-#             echo "Loading Docker images from tarballs..."
-#             docker load -i client.tar || true
-#             docker load -i server.tar || true
-#             echo "Restarting containers..."
-#             docker-compose down
-#             docker-compose up -d
+#             set -e
+#             cd ${{ env.DEPLOY_PATH }}
+
+#             echo "🔍 Current directory: $(pwd)"
+#             echo "📁 Available files: $(ls -la *.tar 2>/dev/null || echo 'No tar files found')"
+
+#             # Create backup of current containers
+#             echo "💾 Creating backup of current containers..."
+#             docker-compose down --remove-orphans || echo "⚠️ No existing containers to stop"
+
+#             # Load new images
+#             echo "🐳 Loading new Docker images..."
+#             if [ -f client.tar ]; then
+#               docker load -i client.tar
+#               echo "✅ Client image loaded"
+#             else
+#               echo "❌ client.tar not found"
+#               exit 1
+#             fi
+
+#             if [ -f server.tar ]; then
+#               docker load -i server.tar
+#               echo "✅ Server image loaded"
+#             else
+#               echo "❌ server.tar not found"
+#               exit 1
+#             fi
+
+#             # Clean up old images (keep last 2 versions)
+#             echo "🧹 Cleaning up old images..."
+#             docker image prune -f
+
+#             # Start new containers
+#             echo "🚀 Starting new containers..."
+#             if [ -f docker-compose.yml ]; then
+#               docker-compose up -d --remove-orphans
+#               echo "✅ Containers started successfully"
+
+#               # Health check
+#               echo "🏥 Performing health check..."
+#               sleep 10
+#               docker-compose ps
+
+#               # Verify containers are running
+#               if docker-compose ps | grep -q "Up"; then
+#                 echo "✅ Deployment successful!"
+#               else
+#                 echo "❌ Some containers failed to start"
+#                 docker-compose logs --tail=50
+#                 exit 1
+#               fi
+#             else
+#               echo "❌ docker-compose.yml not found"
+#               exit 1
+#             fi
+
+#             # Cleanup tar files after successful deployment
+#             echo "🧹 Cleaning up deployment files..."
+#             rm -f client.tar server.tar
+#             echo "✅ Deployment completed successfully"
+
+#       # --- ROLLBACK ON FAILURE ---
+#       - name: Rollback on deployment failure
+#         if: failure() && steps.copy-files.conclusion != 'failure'
+#         uses: appleboy/ssh-action@v1.0.3
+#         with:
+#           host: ${{ secrets.HOST }}
+#           username: ${{ secrets.USERNAME }}
+#           key: ${{ secrets.SSH_KEY }}
+#           port: ${{ secrets.SSH_PORT || '2025' }}
+#           timeout: 60s
+#           script: |
+#             cd ${{ env.DEPLOY_PATH }} || exit 1
+#             echo "🔄 Attempting rollback..."
+
+#             # Check if docker-compose.yml exists
+#             if [ ! -f docker-compose.yml ]; then
+#               echo "❌ docker-compose.yml not found - cannot rollback"
+#               exit 1
+#             fi
+
+#             # Try to restart with previous images
+#             echo "⏹️ Stopping current containers..."
+#             docker-compose down --remove-orphans || true
+
+#             echo "🚀 Starting previous containers..."
+#             docker-compose up -d || {
+#               echo "❌ Failed to start containers during rollback"
+#               exit 1
+#             }
+
+#             # Wait a moment for containers to start
+#             sleep 5
+
+#             if docker-compose ps | grep -q "Up"; then
+#               echo "✅ Rollback successful"
+#             else
+#               echo "❌ Rollback failed - manual intervention required"
+#               echo "📋 Container status:"
+#               docker-compose ps
+#               echo "📋 Recent logs:"
+#               docker-compose logs --tail=20
+#             fi
+
+#       # --- NOTIFICATION ---
+#       - name: Deployment status notification
+#         if: always()
+#         run: |
+#           if [ "${{ job.status }}" == "success" ]; then
+#             echo "🎉 Deployment completed successfully!"
+#             echo "🌐 Application should be available at your configured domain"
+#           else
+#             echo "❌ Deployment failed. Check the logs above for details."
+#             echo "🔄 Rollback may have been attempted automatically."
+#           fi
+
 name: Deploy MERN CRUD App
 
 on:
@@ -106,13 +253,58 @@ env:
   DEPLOY_PATH: /var/www/html/Test-practice
 
 jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      client-changed: ${{ steps.changes.outputs.client }}
+      server-changed: ${{ steps.changes.outputs.server }}
+      docker-compose-changed: ${{ steps.changes.outputs.docker-compose }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            client:
+              - 'client/**'
+            server:
+              - 'server/**'
+            docker-compose:
+              - 'docker-compose.yml'
+              - 'docker-compose.yaml'
+
   deploy:
+    needs: detect-changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    if: ${{ needs.detect-changes.outputs.client-changed == 'true' || needs.detect-changes.outputs.server-changed == 'true' || needs.detect-changes.outputs.docker-compose-changed == 'true' }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # --- DISPLAY CHANGES ---
+      - name: Display detected changes
+        run: |
+          echo "🔍 Change Detection Results:"
+          echo "- Client changed: ${{ needs.detect-changes.outputs.client-changed }}"
+          echo "- Server changed: ${{ needs.detect-changes.outputs.server-changed }}"
+          echo "- Docker Compose changed: ${{ needs.detect-changes.outputs.docker-compose-changed }}"
+
+          if [ "${{ needs.detect-changes.outputs.client-changed }}" == "true" ]; then
+            echo "📦 Will build and deploy CLIENT"
+          fi
+          if [ "${{ needs.detect-changes.outputs.server-changed }}" == "true" ]; then
+            echo "🚀 Will build and deploy SERVER"
+          fi
+          if [ "${{ needs.detect-changes.outputs.docker-compose-changed }}" == "true" ]; then
+            echo "🐳 Docker Compose configuration changed"
+          fi
 
       # --- VALIDATION ---
       - name: Validate required secrets
@@ -123,8 +315,9 @@ jobs:
           fi
           echo "✅ All required secrets are present"
 
-      # --- CREATE .env FOR SERVER ---
+      # --- CREATE .env FOR SERVER (only if server changed) ---
       - name: Create .env file for server
+        if: needs.detect-changes.outputs.server-changed == 'true'
         run: |
           mkdir -p server
           cat > server/.env << EOF
@@ -135,8 +328,9 @@ jobs:
           EOF
           echo "✅ Server .env file created"
 
-      # --- CLIENT BUILD ---
-      - name: Setup Node.js
+      # --- CLIENT BUILD (only if client changed) ---
+      - name: Setup Node.js for client
+        if: needs.detect-changes.outputs.client-changed == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: "22.14.0"
@@ -144,6 +338,7 @@ jobs:
           cache-dependency-path: client/package-lock.json
 
       - name: Install and build client
+        if: needs.detect-changes.outputs.client-changed == 'true'
         working-directory: ./client
         run: |
           echo "📦 Installing client dependencies..."
@@ -154,9 +349,11 @@ jobs:
 
       # --- DOCKER OPERATIONS ---
       - name: Set up Docker Buildx
+        if: needs.detect-changes.outputs.client-changed == 'true' || needs.detect-changes.outputs.server-changed == 'true'
         uses: docker/setup-buildx-action@v3
 
       - name: Build and save client image
+        if: needs.detect-changes.outputs.client-changed == 'true'
         run: |
           echo "🐳 Building client Docker image..."
           docker build -t ${{ env.CLIENT_IMAGE }}:latest ./client
@@ -167,6 +364,7 @@ jobs:
           echo "✅ Client image saved ($(du -h client.tar | cut -f1))"
 
       - name: Build and save server image
+        if: needs.detect-changes.outputs.server-changed == 'true'
         run: |
           echo "🐳 Building server Docker image..."
           docker build -t ${{ env.SERVER_IMAGE }}:latest ./server
@@ -176,35 +374,52 @@ jobs:
           chmod 644 server.tar
           echo "✅ Server image saved ($(du -h server.tar | cut -f1))"
 
-      # --- BACKUP MANAGEMENT ---
+      # --- PREPARE DEPLOYMENT FILES ---
       - name: Prepare deployment files
         run: |
-          # Ensure files exist and have correct permissions
-          ls -la *.tar
+          # Create a list of files to deploy
+          FILES_TO_DEPLOY=""
 
-          echo "📋 Deployment summary:"
-          echo "- Client tar: $(du -h client.tar | cut -f1)"
-          echo "- Server tar: $(du -h server.tar | cut -f1)"
-          echo "- Total size: $(du -ch *.tar | tail -1 | cut -f1)"
+          if [ "${{ needs.detect-changes.outputs.client-changed }}" == "true" ] && [ -f client.tar ]; then
+            FILES_TO_DEPLOY="$FILES_TO_DEPLOY,./client.tar"
+            echo "📦 Client tar ready: $(du -h client.tar | cut -f1)"
+          fi
 
-          # Verify tar files are readable
-          if docker load -i client.tar --quiet && docker load -i server.tar --quiet; then
-            echo "✅ Tar files verified successfully"
-          else
-            echo "❌ Tar file verification failed"
+          if [ "${{ needs.detect-changes.outputs.server-changed }}" == "true" ] && [ -f server.tar ]; then
+            FILES_TO_DEPLOY="$FILES_TO_DEPLOY,./server.tar"
+            echo "🚀 Server tar ready: $(du -h server.tar | cut -f1)"
+          fi
+
+          # Remove leading comma
+          FILES_TO_DEPLOY=$(echo $FILES_TO_DEPLOY | sed 's/^,//')
+
+          if [ -z "$FILES_TO_DEPLOY" ]; then
+            echo "❌ No files to deploy"
             exit 1
+          fi
+
+          echo "FILES_TO_DEPLOY=$FILES_TO_DEPLOY" >> $GITHUB_ENV
+          echo "📋 Files to deploy: $FILES_TO_DEPLOY"
+
+          # Verify tar files if they exist
+          if [ -f client.tar ]; then
+            docker load -i client.tar --quiet && echo "✅ Client tar verified"
+          fi
+          if [ -f server.tar ]; then
+            docker load -i server.tar --quiet && echo "✅ Server tar verified"
           fi
 
       # --- DEPLOY FILES TO SERVER ---
       - name: Copy deployment files to server
         id: copy-files
+        if: env.FILES_TO_DEPLOY != ''
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           port: ${{ secrets.SSH_PORT || '2025' }}
-          source: "./client.tar,./server.tar"
+          source: ${{ env.FILES_TO_DEPLOY }}
           target: ${{ env.DEPLOY_PATH }}
           timeout: 300s
           overwrite: true
@@ -225,54 +440,82 @@ jobs:
             echo "🔍 Current directory: $(pwd)"
             echo "📁 Available files: $(ls -la *.tar 2>/dev/null || echo 'No tar files found')"
 
-            # Create backup of current containers
-            echo "💾 Creating backup of current containers..."
-            docker-compose down --remove-orphans || echo "⚠️ No existing containers to stop"
+            # Load images based on what was deployed
+            CLIENT_CHANGED="${{ needs.detect-changes.outputs.client-changed }}"
+            SERVER_CHANGED="${{ needs.detect-changes.outputs.server-changed }}"
+            DOCKER_COMPOSE_CHANGED="${{ needs.detect-changes.outputs.docker-compose-changed }}"
 
-            # Load new images
-            echo "🐳 Loading new Docker images..."
-            if [ -f client.tar ]; then
+            echo "🐳 Loading updated Docker images..."
+
+            if [ "$CLIENT_CHANGED" == "true" ] && [ -f client.tar ]; then
+              echo "📦 Loading client image..."
               docker load -i client.tar
               echo "✅ Client image loaded"
             else
-              echo "❌ client.tar not found"
-              exit 1
+              echo "⏭️ Skipping client image (no changes)"
             fi
 
-            if [ -f server.tar ]; then
+            if [ "$SERVER_CHANGED" == "true" ] && [ -f server.tar ]; then
+              echo "🚀 Loading server image..."
               docker load -i server.tar  
               echo "✅ Server image loaded"
             else
-              echo "❌ server.tar not found"
-              exit 1
+              echo "⏭️ Skipping server image (no changes)"
             fi
 
-            # Clean up old images (keep last 2 versions)
-            echo "🧹 Cleaning up old images..."
-            docker image prune -f
+            # Check if we need to restart containers
+            NEEDS_RESTART="false"
+            if [ "$CLIENT_CHANGED" == "true" ] || [ "$SERVER_CHANGED" == "true" ] || [ "$DOCKER_COMPOSE_CHANGED" == "true" ]; then
+              NEEDS_RESTART="true"
+            fi
 
-            # Start new containers
-            echo "🚀 Starting new containers..."
-            if [ -f docker-compose.yml ]; then
-              docker-compose up -d --remove-orphans
-              echo "✅ Containers started successfully"
+            if [ "$NEEDS_RESTART" == "true" ]; then
+              echo "🔄 Restarting containers with updated images..."
               
-              # Health check
-              echo "🏥 Performing health check..."
-              sleep 10
-              docker-compose ps
+              # Create backup of current containers
+              echo "💾 Stopping current containers..."
+              docker-compose down --remove-orphans || echo "⚠️ No existing containers to stop"
               
-              # Verify containers are running
-              if docker-compose ps | grep -q "Up"; then
-                echo "✅ Deployment successful!"
+              # Clean up old images (keep last 2 versions)
+              echo "🧹 Cleaning up old images..."
+              docker image prune -f
+              
+              # Start containers
+              echo "🚀 Starting containers..."
+              if [ -f docker-compose.yml ]; then
+                docker-compose up -d --remove-orphans
+                echo "✅ Containers started successfully"
+                
+                # Health check
+                echo "🏥 Performing health check..."
+                sleep 10
+                docker-compose ps
+                
+                # Verify containers are running
+                if docker-compose ps | grep -q "Up"; then
+                  echo "✅ Deployment successful!"
+                  
+                  # Show what was updated
+                  if [ "$CLIENT_CHANGED" == "true" ]; then
+                    echo "📦 Client updated and deployed"
+                  fi
+                  if [ "$SERVER_CHANGED" == "true" ]; then
+                    echo "🚀 Server updated and deployed"
+                  fi
+                  if [ "$DOCKER_COMPOSE_CHANGED" == "true" ]; then
+                    echo "🐳 Docker Compose configuration updated"
+                  fi
+                else
+                  echo "❌ Some containers failed to start"
+                  docker-compose logs --tail=50
+                  exit 1
+                fi
               else
-                echo "❌ Some containers failed to start"
-                docker-compose logs --tail=50
+                echo "❌ docker-compose.yml not found"
                 exit 1
               fi
             else
-              echo "❌ docker-compose.yml not found"
-              exit 1
+              echo "⏭️ No restart needed - no relevant changes detected"
             fi
 
             # Cleanup tar files after successful deployment
@@ -328,9 +571,35 @@ jobs:
         if: always()
         run: |
           if [ "${{ job.status }}" == "success" ]; then
-            echo "🎉 Deployment completed successfully!"
+            echo "🎉 Selective deployment completed successfully!"
+            
+            if [ "${{ needs.detect-changes.outputs.client-changed }}" == "true" ]; then
+              echo "📦 Client was updated and deployed"
+            fi
+            if [ "${{ needs.detect-changes.outputs.server-changed }}" == "true" ]; then
+              echo "🚀 Server was updated and deployed"
+            fi
+            if [ "${{ needs.detect-changes.outputs.docker-compose-changed }}" == "true" ]; then
+              echo "🐳 Docker Compose configuration was updated"
+            fi
+            
             echo "🌐 Application should be available at your configured domain"
           else
             echo "❌ Deployment failed. Check the logs above for details."
             echo "🔄 Rollback may have been attempted automatically."
           fi
+
+  # --- SKIP JOB ---
+  skip-deployment:
+    needs: detect-changes
+    runs-on: ubuntu-latest
+    if: ${{ needs.detect-changes.outputs.client-changed != 'true' && needs.detect-changes.outputs.server-changed != 'true' && needs.detect-changes.outputs.docker-compose-changed != 'true' }}
+    steps:
+      - name: No deployment needed
+        run: |
+          echo "⏭️ No relevant changes detected in this push"
+          echo "🎯 Only deploying when changes are made to:"
+          echo "   - client/ directory (frontend)"
+          echo "   - server/ directory (backend)"  
+          echo "   - docker-compose.yml file"
+          echo "✅ Workflow completed - no deployment necessary"
