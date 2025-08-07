@@ -40,6 +40,7 @@ const Sidebar = () => {
             { label: "Add User", url: "/add-user" },
             { label: "Address List", url: "/address-list" },
             { label: "Add Address", url: "/add-address" },
+            { label: "Upload File", url: "/upload-file" },
           ].map(({ label, url }) => (
             <li key={url}>
               <NavLink

@@ -12,6 +12,7 @@ import MainLayout from "./layout/MainLayout";
 import Address from "./features/address/Address";
 import AddressList from "./features/address/AddressList";
 import Test from "./features/test/test";
+import FileUpload from "./features/uploadFile/FileUpload";
 
 const ProtectedRoute = ({ children }) => {
   const { token } = useSelector((state) => state.auth);
@@ -67,6 +68,16 @@ function App() {
             <MainLayout>
               <ProtectedRoute>
                 <AddressList />
+              </ProtectedRoute>
+            </MainLayout>
+          }
+        />
+        <Route
+          path="/upload-file"
+          element={
+            <MainLayout>
+              <ProtectedRoute>
+                <FileUpload />
               </ProtectedRoute>
             </MainLayout>
           }
