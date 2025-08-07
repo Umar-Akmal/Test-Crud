@@ -519,8 +519,8 @@ jobs:
             fi
 
             # Cleanup tar files after successful deployment
-            echo "🧹 Cleaning up deployment files..."
-            rm -f client.tar server.tar
+            # echo "🧹 Cleaning up deployment files..."
+            # rm -f client.tar server.tar
             echo "✅ Deployment completed successfully"
 
       # --- ROLLBACK ON FAILURE ---
