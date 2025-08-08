@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { uploadFile, resetUpload, fetchFiles } from "../../redux/uploadSlice";
-
+const url = import.meta.env.VITE_API_API_URL;
 const FileUpload = () => {
   const [file, setFile] = useState(null);
   const dispatch = useDispatch();
@@ -83,6 +83,16 @@ const FileUpload = () => {
                 >
                   <td className="py-2 px-4">{index + 1}</td>
                   <td className="py-2 px-4">{el.attachmentName}</td>
+                  <td className="py-2 px-4">
+                    <a
+                      href={`${url}/uploads/${el.attachment}`}
+                      download
+                      target="_blank"
+                      className="inline-block px-3 py-1 text-sm text-white bg-blue-500 rounded hover:bg-blue-600 transition"
+                    >
+                      Download
+                    </a>
+                  </td>
                 </tr>
               ))}
             </tbody>

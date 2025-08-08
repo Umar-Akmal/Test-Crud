@@ -5,6 +5,7 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const addressRoutes = require('./routes/address');
 const uploadRoutes = require('./routes/upload');
+const path = require("path")
 const cors = require('cors');
 dotenv.config();
 
@@ -18,6 +19,9 @@ app.use(cors({
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('MongoDB connected'))
     .catch((err) => console.log(err));
+
+app.use(express.static(__dirname + '/uploads'));
+app.use('/api/uploads', express.static(path.join(__dirname, 'uploads')));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
